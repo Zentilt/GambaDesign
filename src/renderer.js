@@ -123,7 +123,7 @@ export function drawBoard(ctx, board) {
     }
 
     ctx.fillStyle = '#fff';
-    ctx.font = `bold ${slot.isJackpot ? 10 : 12}px sans-serif`;
+    ctx.font = `bold ${slot.isJackpot ? 14 : 12}px sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(slot.label, slot.x + slotW / 2, slot.y + slot.height / 2);

@@ -52,6 +52,10 @@ export class Game {
     document.getElementById('btn-collection').addEventListener('click', () => this._showCollection());
     document.getElementById('btn-shop').addEventListener('click', () => this._showShop());
 
+    // Path selection – bound once; path stored in _pendingPath
+    document.getElementById('btn-path-safe').addEventListener('click', () => this._startRun('safe'));
+    document.getElementById('btn-path-danger').addEventListener('click', () => this._startRun('danger'));
+
     // Canvas
     this.canvas.addEventListener('mousemove', e => {
       const rect = this.canvas.getBoundingClientRect();
@@ -65,6 +69,10 @@ export class Game {
         this._dropBall(x);
       }
     });
+
+    // Game over screen
+    document.getElementById('btn-play-again').addEventListener('click', () => this._startPathSelection());
+    document.getElementById('btn-main-menu').addEventListener('click',  () => { this._renderMenu(); this._showScreen('menu'); });
 
     // Back buttons
     document.querySelectorAll('.btn-back').forEach(b => {
@@ -85,8 +93,6 @@ export class Game {
 
   _startPathSelection() {
     this._showScreen('path');
-    document.getElementById('btn-path-safe').onclick   = () => this._startRun('safe');
-    document.getElementById('btn-path-danger').onclick = () => this._startRun('danger');
   }
 
   // ─── Start Run ──────────────────────────────────────────────
@@ -303,9 +309,6 @@ export class Game {
     screen.querySelector('#go-perm-gold').textContent = this.save.permanentGold;
 
     this._showScreen('gameover');
-
-    document.getElementById('btn-play-again').onclick = () => this._startPathSelection();
-    document.getElementById('btn-main-menu').onclick  = () => { this._renderMenu(); this._showScreen('menu'); };
   }
 
   // ─── Reward Screen ───────────────────────────────────────────

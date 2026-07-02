@@ -84,7 +84,7 @@ export function advanceStage(runState) {
 export function applyRunRewards(save, runState) {
   save.totalRuns++;
   save.totalGoldEarned += runState.gold;
-  save.permanentGold += Math.floor(runState.gold * 0.2);   // 20 % of run gold → permanent
+  save.permanentGold += Math.floor(runState.gold * 0.2);   // 20% of run gold → permanent
   if (runState.score > save.bestScore) save.bestScore = runState.score;
   if (runState.stagesCleared > save.highestStage) save.highestStage = runState.stagesCleared;
   save.bossesDefeated += runState.bossesDefeated || 0;
