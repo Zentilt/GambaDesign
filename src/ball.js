@@ -9,7 +9,7 @@ import {
 } from './constants.js';
 import { dist, clamp, rand, lineCircleIntersect } from './utils.js';
 
-const STEP_SCALE = 1 / PHYSICS_STEP;
+const PHYSICS_STEP_FREQUENCY = 1 / PHYSICS_STEP;
 const ROLL_FRICTION_PER_STEP = 0.9;
 const MIN_ROLL_SPEED = 12;
 const ROLL_FRAMES = 18;
@@ -23,8 +23,8 @@ export class Ball {
   constructor(x, y, vx = 0, vy = 1, runState = null) {
     this.x  = x;
     this.y  = y;
-    this.vx = (vx + rand(-0.5, 0.5)) * STEP_SCALE;
-    this.vy = vy * STEP_SCALE;
+    this.vx = (vx + rand(-0.5, 0.5)) * PHYSICS_STEP_FREQUENCY;
+    this.vy = vy * PHYSICS_STEP_FREQUENCY;
     this.radius = BALL_RADIUS;
     this.active = true;
     this.rolling = false;
@@ -62,7 +62,7 @@ export class Ball {
   update(board, runState, gravity = { x: 0, y: GRAVITY_PPS2 }, dt = PHYSICS_STEP, eventEmitter) {
     if (!this.active || this.landed) return;
 
-    const stepScale = dt * STEP_SCALE;
+    const stepScale = dt * PHYSICS_STEP_FREQUENCY;
     this._pushTrail();
     this._updateComboAndGlow(stepScale);
 
@@ -96,7 +96,7 @@ export class Ball {
         const len = Math.sqrt(dx * dx + dy * dy);
         if (len > 0) {
           const strength = runState.synergiesActive.includes('magnetic_cat') ? 0.06 : 0.03;
-          const accel = strength * STEP_SCALE * stepScale;
+          const accel = strength * PHYSICS_STEP_FREQUENCY * stepScale;
           this.vx += (dx / len) * accel;
           this.vy += (dy / len) * accel;
         }
@@ -214,10 +214,11 @@ export class Ball {
       const t = (check.plane - check.start) / check.value;
       if (t < 0 || t > 1) continue;
 
-      // Ignore cases where the segment starts beyond a wall and ends back inside bounds;
-      // those are recovery moves from prior correction, not fresh wall impacts.
+      // Left wall: ignore recovery motion that starts beyond the wall and ends back in bounds.
       if (check.normal.x === 1 && endX >= this.radius) continue;
+      // Right wall: ignore recovery motion that starts beyond the wall and ends back in bounds.
       if (check.normal.x === -1 && endX <= CANVAS_WIDTH - this.radius) continue;
+      // Top wall: ignore recovery motion that starts beyond the wall and ends back in bounds.
       if (check.normal.y === 1 && endY >= this.radius) continue;
 
       const collision = {
@@ -323,7 +324,7 @@ export class Ball {
     }
 
     if (tangentialJitter > 0) {
-      const jitter = rand(-tangentialJitter, tangentialJitter) * STEP_SCALE;
+      const jitter = rand(-tangentialJitter, tangentialJitter) * PHYSICS_STEP_FREQUENCY;
       this.vx += -ny * jitter;
       this.vy +=  nx * jitter;
     }
@@ -460,7 +461,7 @@ export class Ball {
   }
 
   _roll(slots, dt) {
-    const stepScale = dt * STEP_SCALE;
+    const stepScale = dt * PHYSICS_STEP_FREQUENCY;
     this.y = CANVAS_HEIGHT - SLOT_HEIGHT - this.radius;
     this.vy = 0;
     this.vx *= Math.pow(ROLL_FRICTION_PER_STEP, stepScale);

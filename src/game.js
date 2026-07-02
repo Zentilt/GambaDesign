@@ -14,7 +14,7 @@ import {
 } from './progression.js';
 import { RARITY_WEIGHTS } from './constants.js';
 
-const LEGACY_VELOCITY_SCALE = 1 / PHYSICS_STEP;
+const VELOCITY_TO_PIXELS_PER_SECOND = 1 / PHYSICS_STEP;
 const GRAVITY_SHIFT_INTERVAL_TICKS = 180;
 const SPLIT_VELOCITY_JITTER_X = 1.5;
 const SPLIT_VELOCITY_JITTER_Y = 1;
@@ -185,8 +185,8 @@ export class Game {
         this.balls.push(new Ball(
           activeBall.x,
           activeBall.y,
-          activeBall.vx / LEGACY_VELOCITY_SCALE + rand(-SPLIT_VELOCITY_JITTER_X, SPLIT_VELOCITY_JITTER_X),
-          activeBall.vy / LEGACY_VELOCITY_SCALE + rand(-SPLIT_VELOCITY_JITTER_Y, SPLIT_VELOCITY_JITTER_Y),
+          activeBall.vx / VELOCITY_TO_PIXELS_PER_SECOND + rand(-SPLIT_VELOCITY_JITTER_X, SPLIT_VELOCITY_JITTER_X),
+          activeBall.vy / VELOCITY_TO_PIXELS_PER_SECOND + rand(-SPLIT_VELOCITY_JITTER_Y, SPLIT_VELOCITY_JITTER_Y),
           this.runState
         ));
         this.runState.pendingBalls--;
