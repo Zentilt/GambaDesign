@@ -1,6 +1,6 @@
 // Core game engine
 
-import { CANVAS_WIDTH, CANVAS_HEIGHT, SLOT_COUNT, STAGE_COUNT } from './constants.js';
+import { CANVAS_WIDTH, CANVAS_HEIGHT, SLOT_COUNT, STAGE_COUNT, PHYSICS_STEP, GRAVITY_PPS2 } from './constants.js';
 import { rand, randInt, pick, shuffle, weightedPick, formatNum } from './utils.js';
 import { Ball, updateBumpers } from './ball.js';
 import { buildBoard, resolveSlot } from './board.js';
@@ -30,6 +30,11 @@ export class Game {
     this.animId  = null;
     this.eventLog = [];
     this.machineUpgrades = {};  // persistent machine upgrades for current run attempt
+    this._physicsAccumulator = 0;
+    this._lastFrameTime = null;
+    this._physicsTick = 0;
+    this._gravityShiftIndex = 0;
+    this._gravityVector = { x: 0, y: GRAVITY_PPS2 };
 
     this._bindEvents();
     this._showScreen('menu');
@@ -114,6 +119,7 @@ export class Game {
     });
 
     this._checkSynergies();
+    this._resetBoardPhysicsState();
     this._showScreen('game');
     this._updateHUD();
     this._renderCreatures();
@@ -126,29 +132,24 @@ export class Game {
 
   // ─── Game Loop ──────────────────────────────────────────────
 
-  _gameLoop() {
-    this.animId = requestAnimationFrame(() => this._gameLoop());
+  _gameLoop(timestamp = 0) {
+    this.animId = requestAnimationFrame(nextTs => this._gameLoop(nextTs));
+    if (this._lastFrameTime === null) this._lastFrameTime = timestamp;
+    const frameDt = Math.min((timestamp - this._lastFrameTime) / 1000, 0.1);
+    this._lastFrameTime = timestamp;
+    this._physicsAccumulator += frameDt;
+
+    while (this._physicsAccumulator >= PHYSICS_STEP) {
+      this._stepPhysics(PHYSICS_STEP);
+      this._physicsAccumulator -= PHYSICS_STEP;
+    }
+
     const ctx = this.ctx;
 
     ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
     drawBoard(ctx, this.board);
 
-    // Update & draw balls
-    for (const ball of this.balls) {
-      ball.update(this.board, this.runState, (msg, type) => this._log(msg, type));
-      ball.draw(ctx);
-    }
-
-    updateBumpers(this.board.bumpers);
-
-    // Spawn pending balls (from splits, etc.)
-    if (this.runState.pendingBalls > 0) {
-      const activeBall = this.balls.find(b => b.active);
-      if (activeBall) {
-        this.balls.push(new Ball(activeBall.x, activeBall.y, rand(-3, 3), rand(0, 2), this.runState));
-        this.runState.pendingBalls--;
-      }
-    }
+    for (const ball of this.balls) ball.draw(ctx);
 
     drawLaunchZone(ctx, this.dropping ? null : this.mouseX);
 
@@ -156,6 +157,62 @@ export class Game {
     const allLanded = this.balls.length > 0 && this.balls.every(b => b.landed);
     if (allLanded && this.dropping) {
       this._resolveLanding();
+    }
+  }
+
+  _stepPhysics(dt) {
+    if (!this.runState || !this.board) return;
+
+    this._physicsTick++;
+    this._updateBossPhysics();
+
+    for (const ball of this.balls) {
+      ball.update(this.board, this.runState, this._gravityVector, dt, (msg, type) => this._log(msg, type));
+    }
+
+    updateBumpers(this.board.bumpers, dt / PHYSICS_STEP);
+
+    if (this.runState.pendingBalls > 0) {
+      const activeBall = this.balls.find(b => b.active && !b.rolling);
+      if (activeBall) {
+        this.balls.push(new Ball(
+          activeBall.x,
+          activeBall.y,
+          activeBall.vx / 60 + rand(-1.5, 1.5),
+          activeBall.vy / 60 + rand(-1, 1),
+          this.runState
+        ));
+        this.runState.pendingBalls--;
+      }
+    }
+  }
+
+  _updateBossPhysics() {
+    const modifiers = this.board.bossModifiers || [];
+    const hasGravityShift = modifiers.some(mod => mod.type === 'gravity_shift');
+    const gravityVectors = [
+      { x: 0, y: GRAVITY_PPS2 },
+      { x: GRAVITY_PPS2, y: 0 },
+      { x: 0, y: -GRAVITY_PPS2 },
+      { x: -GRAVITY_PPS2, y: 0 },
+    ];
+
+    if (hasGravityShift) {
+      if (this._physicsTick > 0 && this._physicsTick % 180 === 0) {
+        this._gravityShiftIndex = (this._gravityShiftIndex + 1) % gravityVectors.length;
+        this._log('🌪️ Gravity shifts!', 'danger');
+      }
+      this._gravityVector = gravityVectors[this._gravityShiftIndex];
+    } else {
+      this._gravityShiftIndex = 0;
+      this._gravityVector = gravityVectors[0];
+    }
+
+    for (const barrier of this.board.barriers || []) {
+      const offset = Math.sin(this._physicsTick * barrier.speed + barrier.phase) * barrier.amplitude;
+      barrier.centerX = barrier.baseCenterX + offset;
+      barrier.x1 = barrier.centerX - barrier.length / 2;
+      barrier.x2 = barrier.centerX + barrier.length / 2;
     }
   }
 
@@ -284,6 +341,7 @@ export class Game {
     });
 
     this._checkSynergies();
+    this._resetBoardPhysicsState();
     this._showScreen('game');
     this._updateHUD();
     this._renderCreatures();
@@ -296,6 +354,8 @@ export class Game {
 
   _endRun(victory) {
     if (this.animId) { cancelAnimationFrame(this.animId); this.animId = null; }
+    this._lastFrameTime = null;
+    this._physicsAccumulator = 0;
     applyRunRewards(this.save, this.runState);
 
     const screen = document.getElementById('screen-gameover');
@@ -561,6 +621,22 @@ export class Game {
       document.getElementById('boss-indicator').style.display = 'block';
       const mods = this.board.bossModifiers || [];
       document.getElementById('boss-rules').textContent = mods.map(m => m.label).join(', ');
+    } else {
+      document.getElementById('boss-rules').textContent = '';
+    }
+  }
+
+  _resetBoardPhysicsState() {
+    this._physicsAccumulator = 0;
+    this._lastFrameTime = null;
+    this._physicsTick = 0;
+    this._gravityShiftIndex = 0;
+    this._gravityVector = { x: 0, y: GRAVITY_PPS2 };
+
+    for (const barrier of this.board?.barriers || []) {
+      barrier.centerX = barrier.baseCenterX;
+      barrier.x1 = barrier.centerX - barrier.length / 2;
+      barrier.x2 = barrier.centerX + barrier.length / 2;
     }
   }
 

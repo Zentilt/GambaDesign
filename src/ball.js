@@ -2,22 +2,31 @@
 
 import {
   CANVAS_WIDTH, CANVAS_HEIGHT,
-  GRAVITY, DAMPING, FRICTION,
-  BALL_RADIUS, PEG_RADIUS, BUMPER_RADIUS,
-  SLOT_HEIGHT,
+  PHYSICS_STEP, GRAVITY_PPS2,
+  FRICTION_PER_STEP, MAX_BALL_SPEED,
+  PEG_RESTITUTION, BUMPER_RESTITUTION, WALL_RESTITUTION, BARRIER_RESTITUTION,
+  BALL_RADIUS, SLOT_HEIGHT,
 } from './constants.js';
-import { dist, clamp, rand } from './utils.js';
+import { dist, clamp, rand, lineCircleIntersect } from './utils.js';
+
+const STEP_SCALE = 1 / PHYSICS_STEP;
+const ROLL_FRICTION_PER_STEP = 0.9;
+const MIN_ROLL_SPEED = 12;
+const ROLL_FRAMES = 18;
 
 export class Ball {
   constructor(x, y, vx = 0, vy = 1, runState = null) {
     this.x  = x;
     this.y  = y;
-    this.vx = vx + rand(-0.5, 0.5);
-    this.vy = vy;
+    this.vx = (vx + rand(-0.5, 0.5)) * STEP_SCALE;
+    this.vy = vy * STEP_SCALE;
     this.radius = BALL_RADIUS;
     this.active = true;
+    this.rolling = false;
     this.landed = false;
     this.slotIndex = -1;
+    this.slotBounds = null;
+    this.rollFrames = 0;
     this.trail = [];
     this.trailLen = 12;
 
@@ -42,26 +51,33 @@ export class Ball {
     this.igniteTimer = 0;
     this.slowTimer   = 0;
     this.phantomTimer = 0;  // phase-through timer (Ghost creature)
+    this._portalCooldown = 0;
   }
 
-  update(board, runState, eventEmitter) {
+  update(board, runState, gravity = { x: 0, y: GRAVITY_PPS2 }, dt = PHYSICS_STEP, eventEmitter) {
     if (!this.active || this.landed) return;
 
-    // Store trail
-    this.trail.push({ x: this.x, y: this.y });
-    if (this.trail.length > this.trailLen) this.trail.shift();
+    const stepScale = dt * STEP_SCALE;
+    this._pushTrail();
+    this._updateComboAndGlow(stepScale);
 
-    // Apply gravity
-    this.vy += GRAVITY;
-
-    // Slow from Time Crystal relic
-    if (this.slowTimer > 0) {
-      this.vx *= 0.97;
-      this.vy *= 0.97;
-      this.slowTimer--;
+    if (this.rolling) {
+      this._roll(board.slots, dt);
+      this._tickPortalCooldown(stepScale);
+      this._applyAutoMultiplier(board, runState, eventEmitter, stepScale);
+      return;
     }
 
-    // Magnetic attraction toward bumpers
+    this.vx += gravity.x * dt;
+    this.vy += gravity.y * dt;
+
+    if (this.slowTimer > 0) {
+      const slowMul = Math.pow(0.97, stepScale);
+      this.vx *= slowMul;
+      this.vy *= slowMul;
+      this.slowTimer = Math.max(0, this.slowTimer - stepScale);
+    }
+
     if (this.hasMagnet && board.bumpers.length > 0) {
       let nearest = null;
       let nearestDist = Infinity;
@@ -73,152 +89,333 @@ export class Ball {
         const dx = nearest.x - this.x;
         const dy = nearest.y - this.y;
         const len = Math.sqrt(dx * dx + dy * dy);
-        const strength = runState.synergiesActive.includes('magnetic_cat') ? 0.06 : 0.03;
-        this.vx += (dx / len) * strength;
-        this.vy += (dy / len) * strength;
+        if (len > 0) {
+          const strength = runState.synergiesActive.includes('magnetic_cat') ? 0.06 : 0.03;
+          const accel = strength * STEP_SCALE * stepScale;
+          this.vx += (dx / len) * accel;
+          this.vy += (dy / len) * accel;
+        }
       }
     }
 
-    // Apply friction
-    this.vx *= FRICTION;
+    this.vx *= Math.pow(FRICTION_PER_STEP, stepScale);
+    this._capSpeed();
 
-    // Move
-    this.x += this.vx * this.slowFactor;
-    this.y += this.vy * this.slowFactor;
+    let remainingDt = dt;
+    let iterations = 0;
+    while (remainingDt > 0.0001 && iterations < 3 && !this.rolling) {
+      const startX = this.x;
+      const startY = this.y;
+      const endX = startX + this.vx * remainingDt * this.slowFactor;
+      const endY = startY + this.vy * remainingDt * this.slowFactor;
+      const collision = this._findEarliestCollision(startX, startY, endX, endY, board);
 
-    // Combo window decay
+      if (!collision) {
+        this.x = endX;
+        this.y = endY;
+        break;
+      }
+
+      const travelT = Math.max(0, collision.t - 0.001);
+      this.x = startX + (endX - startX) * travelT;
+      this.y = startY + (endY - startY) * travelT;
+      this._resolveCollision(collision, board, runState, eventEmitter);
+      remainingDt *= 1 - collision.t;
+      iterations++;
+    }
+
+    if (!this.rolling) {
+      this._handlePortals(board, eventEmitter);
+
+      const slotY = CANVAS_HEIGHT - SLOT_HEIGHT;
+      if (this.y + this.radius >= slotY) {
+        this._beginRoll(board.slots);
+      }
+    }
+
+    this._tickPortalCooldown(stepScale);
+    this._applyAutoMultiplier(board, runState, eventEmitter, stepScale);
+  }
+
+  _pushTrail() {
+    this.trail.push({ x: this.x, y: this.y });
+    if (this.trail.length > this.trailLen) this.trail.shift();
+  }
+
+  _updateComboAndGlow(stepScale) {
     if (this.comboWindow > 0) {
-      this.comboWindow--;
+      this.comboWindow = Math.max(0, this.comboWindow - stepScale);
+      if (this.comboWindow === 0) this.combo = 0;
     } else {
       this.combo = 0;
     }
 
-    // Glow decay
-    if (this.glowIntensity > 0) this.glowIntensity = Math.max(0, this.glowIntensity - 2);
-
-    // Wall collisions
-    if (this.x - this.radius < 0) {
-      this.x  = this.radius;
-      this.vx = Math.abs(this.vx) * DAMPING;
+    if (this.glowIntensity > 0) {
+      this.glowIntensity = Math.max(0, this.glowIntensity - 2 * stepScale);
     }
-    if (this.x + this.radius > CANVAS_WIDTH) {
-      this.x  = CANVAS_WIDTH - this.radius;
-      this.vx = -Math.abs(this.vx) * DAMPING;
-    }
+  }
 
-    // Peg collisions
+  _tickPortalCooldown(stepScale) {
+    if (this._portalCooldown > 0) {
+      this._portalCooldown = Math.max(0, this._portalCooldown - stepScale);
+    }
+  }
+
+  _applyAutoMultiplier(board, runState, eventEmitter, stepScale) {
+    if (!(runState.tempUpgrades.includes('auto_multiplier_run') || runState.relics.includes('auto_multiplier'))) return;
+    runState._autoMulTimer = (runState._autoMulTimer || 0) + stepScale;
+    const interval = runState.relics.includes('auto_multiplier') ? 600 : 480;
+    if (runState._autoMulTimer >= interval) {
+      runState._autoMulTimer = 0;
+      board.slots.forEach(s => { s.value += 1; });
+      eventEmitter && eventEmitter('✖️ Auto-multiplier +1!', 'relic');
+    }
+  }
+
+  _findEarliestCollision(startX, startY, endX, endY, board) {
+    let earliest = this._sweepWalls(startX, startY, endX, endY);
+
     for (const peg of board.pegs) {
-      const d = dist(this.x, this.y, peg.x, peg.y);
-      const minDist = this.radius + peg.radius;
-      if (d < minDist && d > 0) {
-        this._resolveCircleCollision(peg, d, minDist, DAMPING);
-        peg.hitCount++;
-        this.pegHits++;
-        this.comboWindow = 20;
-        this.combo++;
-        this.glowIntensity = 20;
-
-        if (peg.isGolden) {
-          eventEmitter && eventEmitter('✨ Golden peg hit! +20 gold', 'highlight');
-          runState.bonusGold = (runState.bonusGold || 0) + 20;
-        }
-
-        if (peg.isWeb) {
-          // Web slows ball briefly
-          this.vx *= 0.5;
-          this.vy *= 0.5;
-          eventEmitter && eventEmitter('🕷️ Web slows the ball!', 'creature');
-        }
-
-        // Wolf speed streak
-        if (runState.creatures.includes('wolf')) {
-          this.speedStreak++;
-          if (this.speedStreak >= 5) {
-            const mag = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
-            this.vx = (this.vx / mag) * (mag * 1.4);
-            this.vy = (this.vy / mag) * (mag * 1.4);
-            this.speedStreak = 0;
-            eventEmitter && eventEmitter('🐺 Wolf speed burst!', 'creature');
-          }
-        }
-
-        // Triple bounce at every 3rd hit
-        if (runState.tempUpgrades.includes('triple_bounce') && this.pegHits % 3 === 0) {
-          runState.bonusScore = (runState.bonusScore || 0) + 30;
-          eventEmitter && eventEmitter('🎯 Triple bounce!', 'highlight');
-        }
-
-        // Dragon chain reaction at every 10th hit
-        if (runState.creatures.includes('dragon') && this.pegHits % 10 === 0) {
-          this._triggerChainReaction(board, runState, eventEmitter);
-        }
-      }
+      const collision = this._sweepCircle(startX, startY, endX, endY, peg, this.radius + peg.radius, 'peg', PEG_RESTITUTION);
+      if (collision && (!earliest || collision.t < earliest.t)) earliest = collision;
     }
 
-    // Bumper collisions
     for (const bumper of board.bumpers) {
-      const d = dist(this.x, this.y, bumper.x, bumper.y);
-      const minDist = this.radius + bumper.radius;
-      if (d < minDist && d > 0) {
-        this._resolveCircleCollision(bumper, d, minDist, 1.2);  // bumpers bounce harder
-        bumper.hitCount++;
-        this.bumperHits++;
-        this.comboWindow = 30;
-        this.combo++;
-        this.glowIntensity = 30;
+      const collision = this._sweepCircle(startX, startY, endX, endY, bumper, this.radius + bumper.radius, 'bumper', BUMPER_RESTITUTION);
+      if (collision && (!earliest || collision.t < earliest.t)) earliest = collision;
+    }
 
-        if (runState.creatures.includes('crab')) {
-          this.vx *= 1.4;
+    for (const barrier of board.barriers || []) {
+      const collision = this._sweepBarrier(startX, startY, endX, endY, barrier);
+      if (collision && (!earliest || collision.t < earliest.t)) earliest = collision;
+    }
+
+    return earliest;
+  }
+
+  _sweepWalls(startX, startY, endX, endY) {
+    let earliest = null;
+    const dx = endX - startX;
+    const dy = endY - startY;
+
+    const checks = [
+      { plane: this.radius, value: dx, start: startX, normal: { x: 1, y: 0 } },
+      { plane: CANVAS_WIDTH - this.radius, value: dx, start: startX, normal: { x: -1, y: 0 } },
+      { plane: this.radius, value: dy, start: startY, normal: { x: 0, y: 1 } },
+    ];
+
+    for (const check of checks) {
+      if (check.value === 0) continue;
+      const t = (check.plane - check.start) / check.value;
+      if (t < 0 || t > 1) continue;
+
+      if (check.normal.x === 1 && endX >= this.radius) continue;
+      if (check.normal.x === -1 && endX <= CANVAS_WIDTH - this.radius) continue;
+      if (check.normal.y === 1 && endY >= this.radius) continue;
+
+      const collision = {
+        type: 'wall',
+        t,
+        nx: check.normal.x,
+        ny: check.normal.y,
+        restitution: WALL_RESTITUTION,
+      };
+      if (!earliest || collision.t < earliest.t) earliest = collision;
+    }
+
+    return earliest;
+  }
+
+  _sweepCircle(startX, startY, endX, endY, obstacle, minDist, type, restitution) {
+    const t = lineCircleIntersect(startX, startY, endX, endY, obstacle.x, obstacle.y, minDist);
+    if (t === null) return null;
+
+    const cx = startX + (endX - startX) * t;
+    const cy = startY + (endY - startY) * t;
+    const nx = (cx - obstacle.x) / minDist;
+    const ny = (cy - obstacle.y) / minDist;
+
+    return {
+      type,
+      t,
+      obstacle,
+      nx,
+      ny,
+      restitution,
+    };
+  }
+
+  _sweepBarrier(startX, startY, endX, endY, barrier) {
+    const expanded = this.radius + barrier.thickness / 2;
+    let earliest = null;
+    const dy = endY - startY;
+
+    const flatChecks = [
+      { y: barrier.y - expanded, ny: -1 },
+      { y: barrier.y + expanded, ny: 1 },
+    ];
+
+    if (dy !== 0) {
+      for (const check of flatChecks) {
+        const t = (check.y - startY) / dy;
+        if (t < 0 || t > 1) continue;
+        const xAt = startX + (endX - startX) * t;
+        if (xAt >= Math.min(barrier.x1, barrier.x2) - expanded && xAt <= Math.max(barrier.x1, barrier.x2) + expanded) {
+          const collision = {
+            type: 'barrier',
+            t,
+            obstacle: barrier,
+            nx: 0,
+            ny: check.ny,
+            restitution: BARRIER_RESTITUTION,
+          };
+          if (!earliest || collision.t < earliest.t) earliest = collision;
         }
-
-        if (this.isFireball || bumper.isIgnited) {
-          bumper.isIgnited = true;
-          bumper.igniteTimer = 180;
-          runState.bonusScore = (runState.bonusScore || 0) + 50;
-          eventEmitter && eventEmitter('🔥 Bumper ignited!', 'highlight');
-        }
-
-        // Ball split on first bumper hit
-        if (runState.tempUpgrades.includes('ball_split_run') && this.bumperHits === 1) {
-          runState.pendingBalls = (runState.pendingBalls || 0) + 1;
-          eventEmitter && eventEmitter('⚡ Ball splits!', 'highlight');
-        }
-
-        // Splitter relic
-        if (runState.relics.includes('splitter') && this.bumperHits === 1) {
-          runState.pendingBalls = (runState.pendingBalls || 0) + 1;
-          eventEmitter && eventEmitter('⚡ Splitter activates!', 'relic');
-        }
-
-        // Chain explosion at combo 5+
-        const chainThreshold = runState.tempUpgrades.includes('chain_explosion_run') ? 5 : 8;
-        if (this.combo >= chainThreshold && runState.relics.includes('chain_bomb')) {
-          runState.bonusScore = (runState.bonusScore || 0) + 200;
-          eventEmitter && eventEmitter('💥 CHAIN EXPLOSION!', 'danger');
-        }
-
-        // Slime: every 5th bumper hit = bonus ball
-        if (runState.creatures.includes('slime') && this.bumperHits % 5 === 0) {
-          runState.pendingBalls = (runState.pendingBalls || 0) + 1;
-          eventEmitter && eventEmitter('🟢 Slime spawns a ball!', 'creature');
-        }
-
-        // Queen Bee: gold peg bonus ball
-        if (runState.creatures.includes('bee') && bumper.isIgnited) {
-          runState.pendingBalls = (runState.pendingBalls || 0) + 1;
-          eventEmitter && eventEmitter('🐝 Queen Bee activates!', 'creature');
-        }
-
-        // Time Crystal slow
-        if (runState.relics.includes('time_crystal')) {
-          this.slowTimer = 120;
-        }
-
-        eventEmitter && eventEmitter(`Combo ×${this.combo}`, 'highlight');
       }
     }
 
-    // Portal collisions
+    for (const pointX of [barrier.x1, barrier.x2]) {
+      const t = lineCircleIntersect(startX, startY, endX, endY, pointX, barrier.y, expanded);
+      if (t === null) continue;
+      const cx = startX + (endX - startX) * t;
+      const cy = startY + (endY - startY) * t;
+      const d = dist(cx, cy, pointX, barrier.y) || 1;
+      const collision = {
+        type: 'barrier',
+        t,
+        obstacle: barrier,
+        nx: (cx - pointX) / d,
+        ny: (cy - barrier.y) / d,
+        restitution: BARRIER_RESTITUTION,
+      };
+      if (!earliest || collision.t < earliest.t) earliest = collision;
+    }
+
+    return earliest;
+  }
+
+  _resolveCollision(collision, board, runState, eventEmitter) {
+    this._bounceAlongNormal(collision.nx, collision.ny, collision.restitution, collision.type === 'peg' ? 0.15 : 0);
+
+    if (collision.type === 'peg') {
+      this._handlePegHit(collision.obstacle, board, runState, eventEmitter);
+    } else if (collision.type === 'bumper') {
+      this._handleBumperHit(collision.obstacle, runState, eventEmitter);
+    }
+  }
+
+  _bounceAlongNormal(nx, ny, restitution, tangentialJitter = 0) {
+    this.x += nx * 0.35;
+    this.y += ny * 0.35;
+
+    const dot = this.vx * nx + this.vy * ny;
+    if (dot < 0) {
+      this.vx -= (1 + restitution) * dot * nx;
+      this.vy -= (1 + restitution) * dot * ny;
+    }
+
+    if (tangentialJitter > 0) {
+      const jitter = rand(-tangentialJitter, tangentialJitter) * STEP_SCALE;
+      this.vx += -ny * jitter;
+      this.vy +=  nx * jitter;
+    }
+
+    this._capSpeed();
+  }
+
+  _handlePegHit(peg, board, runState, eventEmitter) {
+    peg.hitCount++;
+    this.pegHits++;
+    this.comboWindow = 20;
+    this.combo++;
+    this.glowIntensity = 20;
+
+    if (peg.isGolden) {
+      eventEmitter && eventEmitter('✨ Golden peg hit! +20 gold', 'highlight');
+      runState.bonusGold = (runState.bonusGold || 0) + 20;
+    }
+
+    if (peg.isWeb) {
+      this.vx *= 0.5;
+      this.vy *= 0.5;
+      eventEmitter && eventEmitter('🕷️ Web slows the ball!', 'creature');
+    }
+
+    if (runState.creatures.includes('wolf')) {
+      this.speedStreak++;
+      if (this.speedStreak >= 5) {
+        const mag = Math.sqrt(this.vx * this.vx + this.vy * this.vy) || 1;
+        this.vx = (this.vx / mag) * (mag * 1.4);
+        this.vy = (this.vy / mag) * (mag * 1.4);
+        this.speedStreak = 0;
+        this._capSpeed();
+        eventEmitter && eventEmitter('🐺 Wolf speed burst!', 'creature');
+      }
+    }
+
+    if (runState.tempUpgrades.includes('triple_bounce') && this.pegHits % 3 === 0) {
+      runState.bonusScore = (runState.bonusScore || 0) + 30;
+      eventEmitter && eventEmitter('🎯 Triple bounce!', 'highlight');
+    }
+
+    if (runState.creatures.includes('dragon') && this.pegHits % 10 === 0) {
+      this._triggerChainReaction(board, runState, eventEmitter);
+    }
+  }
+
+  _handleBumperHit(bumper, runState, eventEmitter) {
+    bumper.hitCount++;
+    this.bumperHits++;
+    this.comboWindow = 30;
+    this.combo++;
+    this.glowIntensity = 30;
+
+    if (runState.creatures.includes('crab')) {
+      this.vx *= 1.4;
+      this._capSpeed();
+    }
+
+    if (this.isFireball || bumper.isIgnited) {
+      bumper.isIgnited = true;
+      bumper.igniteTimer = 180;
+      runState.bonusScore = (runState.bonusScore || 0) + 50;
+      eventEmitter && eventEmitter('🔥 Bumper ignited!', 'highlight');
+    }
+
+    if (runState.tempUpgrades.includes('ball_split_run') && this.bumperHits === 1) {
+      runState.pendingBalls = (runState.pendingBalls || 0) + 1;
+      eventEmitter && eventEmitter('⚡ Ball splits!', 'highlight');
+    }
+
+    if (runState.relics.includes('splitter') && this.bumperHits === 1) {
+      runState.pendingBalls = (runState.pendingBalls || 0) + 1;
+      eventEmitter && eventEmitter('⚡ Splitter activates!', 'relic');
+    }
+
+    const chainThreshold = runState.tempUpgrades.includes('chain_explosion_run') ? 5 : 8;
+    if (this.combo >= chainThreshold && runState.relics.includes('chain_bomb')) {
+      runState.bonusScore = (runState.bonusScore || 0) + 200;
+      eventEmitter && eventEmitter('💥 CHAIN EXPLOSION!', 'danger');
+    }
+
+    if (runState.creatures.includes('slime') && this.bumperHits % 5 === 0) {
+      runState.pendingBalls = (runState.pendingBalls || 0) + 1;
+      eventEmitter && eventEmitter('🟢 Slime spawns a ball!', 'creature');
+    }
+
+    if (runState.creatures.includes('bee') && bumper.isIgnited) {
+      runState.pendingBalls = (runState.pendingBalls || 0) + 1;
+      eventEmitter && eventEmitter('🐝 Queen Bee activates!', 'creature');
+    }
+
+    if (runState.relics.includes('time_crystal')) {
+      this.slowTimer = 120;
+    }
+
+    eventEmitter && eventEmitter(`Combo ×${this.combo}`, 'highlight');
+  }
+
+  _handlePortals(board, eventEmitter) {
     for (const portal of board.portals) {
       const d = dist(this.x, this.y, portal.x, portal.y);
       if (d < this.radius + portal.radius - 4) {
@@ -231,37 +428,57 @@ export class Ball {
         }
       }
     }
-    if (this._portalCooldown > 0) this._portalCooldown--;
+  }
 
-    // Check if ball has reached the slot area
-    const slotY = CANVAS_HEIGHT - SLOT_HEIGHT;
-    if (this.y + this.radius >= slotY) {
-      this._land(board.slots);
+  _beginRoll(slots) {
+    const slotW = CANVAS_WIDTH / slots.length;
+    const slotIndex = clamp(Math.floor(this.x / slotW), 0, slots.length - 1);
+    const slot = slots[slotIndex];
+    if (!slot) {
+      this._land(slots);
+      return;
     }
 
-    // Auto-multiplier: increase slot values over time
-    if (runState.tempUpgrades.includes('auto_multiplier_run') || runState.relics.includes('auto_multiplier')) {
-      runState._autoMulTimer = (runState._autoMulTimer || 0) + 1;
-      const interval = runState.relics.includes('auto_multiplier') ? 600 : 480;
-      if (runState._autoMulTimer >= interval) {
-        runState._autoMulTimer = 0;
-        board.slots.forEach(s => { s.value += 1; });
-        eventEmitter && eventEmitter('✖️ Auto-multiplier +1!', 'relic');
+    this.rolling = true;
+    this.y = CANVAS_HEIGHT - SLOT_HEIGHT - this.radius;
+    this.vy = 0;
+    this.rollFrames = ROLL_FRAMES;
+    this.slotBounds = {
+      left: slot.x + this.radius,
+      right: slot.x + slot.width - this.radius,
+    };
+  }
+
+  _roll(slots, dt) {
+    const stepScale = dt * STEP_SCALE;
+    this.y = CANVAS_HEIGHT - SLOT_HEIGHT - this.radius;
+    this.vy = 0;
+    this.vx *= Math.pow(ROLL_FRICTION_PER_STEP, stepScale);
+    this.x += this.vx * dt;
+
+    if (this.slotBounds) {
+      if (this.x < this.slotBounds.left) {
+        this.x = this.slotBounds.left;
+        this.vx = Math.abs(this.vx) * WALL_RESTITUTION * 0.5;
+      } else if (this.x > this.slotBounds.right) {
+        this.x = this.slotBounds.right;
+        this.vx = -Math.abs(this.vx) * WALL_RESTITUTION * 0.5;
       }
+    }
+
+    this.rollFrames -= stepScale;
+    if (Math.abs(this.vx) < MIN_ROLL_SPEED || this.rollFrames <= 0) {
+      this._land(slots);
     }
   }
 
-  _resolveCircleCollision(obstacle, d, minDist, bounceFactor) {
-    const nx = (this.x - obstacle.x) / d;
-    const ny = (this.y - obstacle.y) / d;
-    const overlap = minDist - d;
-    this.x += nx * overlap;
-    this.y += ny * overlap;
-    const dot = this.vx * nx + this.vy * ny;
-    this.vx -= 2 * dot * nx * bounceFactor;
-    this.vy -= 2 * dot * ny * bounceFactor;
-    this.vx *= DAMPING;
-    this.vy *= DAMPING;
+  _capSpeed() {
+    const mag = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+    if (mag > MAX_BALL_SPEED) {
+      const scale = MAX_BALL_SPEED / mag;
+      this.vx *= scale;
+      this.vy *= scale;
+    }
   }
 
   _triggerChainReaction(board, runState, eventEmitter) {
@@ -284,6 +501,7 @@ export class Ball {
   }
 
   _land(slots) {
+    this.rolling = false;
     this.landed = true;
     this.active = false;
     const slotW = CANVAS_WIDTH / slots.length;
@@ -344,11 +562,11 @@ export class Ball {
 }
 
 /** Update bumper ignite timers */
-export function updateBumpers(bumpers) {
+export function updateBumpers(bumpers, stepScale = 1) {
   for (const b of bumpers) {
     if (b.igniteTimer > 0) {
-      b.igniteTimer--;
-      if (b.igniteTimer === 0) b.isIgnited = false;
+      b.igniteTimer = Math.max(0, b.igniteTimer - stepScale);
+      if (b.igniteTimer <= 0) b.isIgnited = false;
     }
   }
 }

@@ -137,6 +137,28 @@ function generatePortals(count) {
   return portals;
 }
 
+/** Generate moving boss barriers */
+function generateBarriers() {
+  const specs = [
+    { y: BOARD_OFFSET_Y + 150, baseCenterX: CANVAS_WIDTH * 0.35, length: 120, amplitude: 42, speed: 0.05, phase: 0 },
+    { y: BOARD_OFFSET_Y + 280, baseCenterX: CANVAS_WIDTH * 0.65, length: 120, amplitude: 52, speed: 0.04, phase: Math.PI / 2 },
+  ];
+
+  return specs.map((spec, index) => ({
+    id: index,
+    y: spec.y,
+    length: spec.length,
+    thickness: 10,
+    baseCenterX: spec.baseCenterX,
+    amplitude: spec.amplitude,
+    speed: spec.speed,
+    phase: spec.phase,
+    centerX: spec.baseCenterX,
+    x1: spec.baseCenterX - spec.length / 2,
+    x2: spec.baseCenterX + spec.length / 2,
+  }));
+}
+
 /** Generate slots at the bottom of the board */
 function generateSlots(path, jackpotSlotIndex = -1, recycleSlotIndex = -1, multipliedSlots = []) {
   const config = path === 'danger' ? SLOT_CONFIGS.danger : SLOT_CONFIGS.standard;
@@ -201,6 +223,9 @@ export function buildBoard({
   const theme = THEMES[themeIdx];
   const palette = THEME_PALETTES[theme];
 
+  const bossModifiers = isBoss ? generateBossModifiers(stage) : [];
+  const hasMovingBarriers = bossModifiers.some(mod => mod.type === 'moving_barriers');
+
   const bumperCount = 1 + (machineUpgrades.bumper_count || 0) + (creatureIds.includes('octopus') ? 2 : 0);
   const bonusPegCount = creatureIds.includes('mushroom') ? 3 : 0;
   const portalCount = (machineUpgrades.portal_count || 0) + (relicIds.includes('lucky_portal') ? 1 : 0);
@@ -215,6 +240,7 @@ export function buildBoard({
   const pegs    = generatePegs(bonusPegCount, machineUpgrades);
   const bumpers = generateBumpers(bumperCount, machineUpgrades);
   const portals = generatePortals(portalCount);
+  const barriers = hasMovingBarriers ? generateBarriers() : [];
   const slots   = generateSlots(path, jackpotSlotIndex, recycleSlotIndex, multipliedSlots);
 
   // Golden peg (from relic)
@@ -237,9 +263,6 @@ export function buildBoard({
     slots[lavaIdx].label  = 'LAVA🌋';
   }
 
-  // Boss-specific modifiers
-  const bossModifiers = isBoss ? generateBossModifiers(stage) : null;
-
   return {
     theme,
     palette,
@@ -247,6 +270,7 @@ export function buildBoard({
     pegs,
     bumpers,
     portals,
+    barriers,
     slots,
     isBoss,
     bossModifiers,

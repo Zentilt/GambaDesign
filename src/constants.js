@@ -3,9 +3,14 @@
 export const CANVAS_WIDTH  = 440;
 export const CANVAS_HEIGHT = 680;
 
-export const GRAVITY   = 0.35;
-export const DAMPING   = 0.62;   // energy kept after peg bounce
-export const FRICTION  = 0.995;  // horizontal friction per frame
+export const PHYSICS_STEP = 1 / 60;
+export const GRAVITY_PPS2 = 1260;
+export const PEG_RESTITUTION = 0.55;
+export const BUMPER_RESTITUTION = 0.85;
+export const WALL_RESTITUTION = 0.6;
+export const BARRIER_RESTITUTION = 0.72;
+export const FRICTION_PER_STEP = 0.995;
+export const MAX_BALL_SPEED = 1080;
 export const BALL_RADIUS = 9;
 export const PEG_RADIUS  = 7;
 export const BUMPER_RADIUS = 18;
