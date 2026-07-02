@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GambaDesign – Pachinko Roguelite</title>
+  <link rel="stylesheet" href="styles/main.css" />
+</head>
+<body>
+<div id="app">
+
+  <!-- ─── MAIN MENU ──────────────────────────────────────────── -->
+  <div id="screen-menu" class="screen active">
+    <h1 class="menu-title">⚙️ GAMBA</h1>
+    <p class="menu-subtitle">Pachinko Roguelite · Creature Collection</p>
+    <div class="menu-buttons">
+      <button id="btn-new-run"    class="btn btn-primary">▶  New Run</button>
+      <button id="btn-collection" class="btn btn-secondary">📖 Collection</button>
+      <button id="btn-shop"       class="btn btn-teal">🏪 Permanent Shop</button>
+    </div>
+    <p id="menu-save-info" style="margin-top:16px;color:var(--text-secondary);font-size:13px"></p>
+  </div>
+
+  <!-- ─── PATH SELECTION ────────────────────────────────────── -->
+  <div id="screen-path" class="screen">
+    <h2 class="path-title">Choose Your Path</h2>
+    <div class="path-options">
+      <div class="path-card safe" id="btn-path-safe">
+        <div class="path-icon">🛡️</div>
+        <h3>Safe Route</h3>
+        <p>Reliable rewards.<br>Balanced board layouts.<br>Fewer rare opportunities.</p>
+        <div class="path-rewards">
+          <span>Slot max: 10×</span>
+          <span>Combo bonus: ×1</span>
+        </div>
+      </div>
+      <div class="path-card danger" id="btn-path-danger">
+        <div class="path-icon">⚠️</div>
+        <h3>Danger Route</h3>
+        <p>Difficult layouts.<br>Higher combo potential.<br>Better relics &amp; greater risk.</p>
+        <div class="path-rewards">
+          <span>Slot max: 100×</span>
+          <span>All rewards ×1.5</span>
+          <span style="color:var(--accent-red)">FAIL slots present</span>
+        </div>
+      </div>
+    </div>
+    <button class="btn btn-icon btn-back" style="margin-top:24px">← Back</button>
+  </div>
+
+  <!-- ─── GAME SCREEN ───────────────────────────────────────── -->
+  <div id="screen-game" class="screen">
+
+    <!-- Left panel: stats -->
+    <div id="panel-left">
+      <div class="hud-section">
+        <div class="hud-label">Score</div>
+        <div class="hud-value" id="hud-score">0</div>
+      </div>
+      <div class="hud-section">
+        <div class="hud-label">Gold</div>
+        <div class="hud-value" id="hud-gold">10</div>
+      </div>
+      <div class="hud-section">
+        <div class="hud-label">Stage</div>
+        <div class="hud-value hud-small" id="hud-stage">1 / 10</div>
+        <div class="progress-bar-container" style="margin-top:6px">
+          <div class="progress-bar" style="width:0%"></div>
+        </div>
+      </div>
+      <div class="hud-section">
+        <div class="hud-label">Balls</div>
+        <div class="hud-value" id="hud-balls">3</div>
+      </div>
+      <div class="hud-section">
+        <div class="hud-label">Path</div>
+        <div class="hud-value hud-small" id="hud-path">🛡️ SAFE</div>
+      </div>
+      <div id="boss-indicator" class="boss-indicator" style="display:none">
+        ☠️ BOSS STAGE
+        <div id="boss-rules" style="font-size:11px;margin-top:4px;font-weight:400"></div>
+      </div>
+      <div class="combo-display" id="hud-combo"></div>
+    </div>
+
+    <!-- Center: canvas -->
+    <div id="panel-center">
+      <canvas id="game-canvas"></canvas>
+      <div id="canvas-overlay" class="canvas-overlay">
+        <div class="canvas-message">🎯 Click to drop ball</div>
+      </div>
+    </div>
+
+    <!-- Right panel: creatures, relics, log -->
+    <div id="panel-right">
+      <div class="hud-section">
+        <div class="hud-label">Creatures</div>
+        <div class="creature-list" id="creature-list"></div>
+      </div>
+      <div class="hud-section">
+        <div class="hud-label">Relics</div>
+        <div class="relic-list" id="relic-list"></div>
+      </div>
+      <div class="hud-section">
+        <div class="hud-label">Event Log</div>
+        <div class="event-log" id="event-log"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── REWARD SCREEN ─────────────────────────────────────── -->
+  <div id="screen-reward" class="screen">
+    <h2 class="reward-title">🎁 Choose a Reward</h2>
+    <p style="color:var(--text-secondary);font-size:14px">Pick one to keep for this run.</p>
+    <div class="reward-options" id="reward-options"></div>
+    <button id="btn-skip-reward" class="btn btn-icon" style="margin-top:24px">Skip →</button>
+  </div>
+
+  <!-- ─── UPGRADE SCREEN ────────────────────────────────────── -->
+  <div id="screen-upgrade" class="screen">
+    <h2 class="upgrade-title">⚙️ Upgrade Your Machine</h2>
+    <p style="color:var(--text-secondary);font-size:14px">Purchase upgrades with your gold. Upgrades persist throughout this run.</p>
+    <div class="upgrade-grid" id="upgrade-grid"></div>
+    <button id="btn-continue-upgrade" class="btn btn-primary" style="margin-top:24px">Continue →</button>
+  </div>
+
+  <!-- ─── GAME OVER / VICTORY ───────────────────────────────── -->
+  <div id="screen-gameover" class="screen">
+    <div class="gameover-title loss">💀 GAME OVER</div>
+    <div class="gameover-stats">
+      <div>Score: <strong id="go-score">0</strong></div>
+      <div>Stages cleared: <strong id="go-stage">0</strong></div>
+      <div>Gold earned: <strong id="go-gold">0</strong></div>
+      <div>Permanent gold: <strong id="go-perm-gold">0</strong></div>
+    </div>
+    <div style="display:flex;gap:16px">
+      <button id="btn-play-again" class="btn btn-primary">▶ Play Again</button>
+      <button id="btn-main-menu"  class="btn btn-secondary">⌂ Main Menu</button>
+    </div>
+  </div>
+
+  <!-- ─── COLLECTION SCREEN ─────────────────────────────────── -->
+  <div id="screen-collection" class="screen" style="flex-direction:column;align-items:center;padding:40px;gap:24px;overflow-y:auto">
+    <h2 style="color:var(--accent-gold);font-size:32px">📖 Creature Collection</h2>
+    <p style="color:var(--text-secondary)">Discover creatures through runs. Each unlocks permanently.</p>
+    <div id="collection-grid" class="creature-list" style="max-width:700px;width:100%"></div>
+    <button class="btn btn-icon btn-back">← Back</button>
+  </div>
+
+  <!-- ─── SHOP SCREEN ───────────────────────────────────────── -->
+  <div id="screen-shop" class="screen" style="flex-direction:column;align-items:center;padding:40px;gap:24px;overflow-y:auto">
+    <h2 style="color:var(--accent-gold);font-size:32px">🏪 Permanent Shop</h2>
+    <p style="color:var(--text-secondary)">Permanent gold: <strong id="shop-perm-gold">0</strong> 💎</p>
+    <p style="color:var(--text-secondary);font-size:13px">Earn permanent gold by completing runs (20% of run gold).</p>
+    <div id="shop-grid" class="upgrade-grid"></div>
+    <button class="btn btn-icon btn-back">← Back</button>
+  </div>
+
+</div>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
