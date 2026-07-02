@@ -163,8 +163,9 @@ export class Game {
   _stepPhysics(dt) {
     if (!this.runState || !this.board) return;
 
-    this._physicsTick++;
-    this._updateBossPhysics();
+    const simulationActive = this.dropping && this.balls.some(ball => ball.active);
+    if (simulationActive) this._physicsTick++;
+    this._updateBossPhysics(simulationActive);
 
     for (const ball of this.balls) {
       ball.update(this.board, this.runState, this._gravityVector, dt, (msg, type) => this._log(msg, type));
@@ -187,7 +188,7 @@ export class Game {
     }
   }
 
-  _updateBossPhysics() {
+  _updateBossPhysics(simulationActive = false) {
     const modifiers = this.board.bossModifiers || [];
     const hasGravityShift = modifiers.some(mod => mod.type === 'gravity_shift');
     const gravityVectors = [
@@ -198,7 +199,7 @@ export class Game {
     ];
 
     if (hasGravityShift) {
-      if (this._physicsTick > 0 && this._physicsTick % 180 === 0) {
+      if (simulationActive && this._physicsTick > 0 && this._physicsTick % 180 === 0) {
         this._gravityShiftIndex = (this._gravityShiftIndex + 1) % gravityVectors.length;
         this._log('🌪️ Gravity shifts!', 'danger');
       }
