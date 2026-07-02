@@ -14,7 +14,7 @@ import {
 } from './progression.js';
 import { RARITY_WEIGHTS } from './constants.js';
 
-const LEGACY_STEP_RATE = 1 / PHYSICS_STEP;
+const LEGACY_VELOCITY_SCALE = 1 / PHYSICS_STEP;
 const GRAVITY_SHIFT_INTERVAL_TICKS = 180;
 
 export class Game {
@@ -183,8 +183,8 @@ export class Game {
         this.balls.push(new Ball(
           activeBall.x,
           activeBall.y,
-          activeBall.vx / LEGACY_STEP_RATE + rand(-1.5, 1.5),
-          activeBall.vy / LEGACY_STEP_RATE + rand(-1, 1),
+          activeBall.vx / LEGACY_VELOCITY_SCALE + rand(-1.5, 1.5),
+          activeBall.vy / LEGACY_VELOCITY_SCALE + rand(-1, 1),
           this.runState
         ));
         this.runState.pendingBalls--;
