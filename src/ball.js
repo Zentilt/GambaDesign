@@ -13,6 +13,10 @@ const STEP_SCALE = 1 / PHYSICS_STEP;
 const ROLL_FRICTION_PER_STEP = 0.9;
 const MIN_ROLL_SPEED = 12;
 const ROLL_FRAMES = 18;
+const COLLISION_EPSILON = 0.0001;
+const MAX_COLLISION_ITERATIONS = 3;
+const COLLISION_SAFETY_OFFSET = 0.001;
+const COLLISION_SEPARATION_OFFSET = 0.35;
 
 export class Ball {
   constructor(x, y, vx = 0, vy = 1, runState = null) {
@@ -103,7 +107,7 @@ export class Ball {
 
     let remainingDt = dt;
     let iterations = 0;
-    while (remainingDt > 0.0001 && iterations < 3 && !this.rolling) {
+    while (remainingDt > COLLISION_EPSILON && iterations < MAX_COLLISION_ITERATIONS && !this.rolling) {
       const startX = this.x;
       const startY = this.y;
       const endX = startX + this.vx * remainingDt * this.slowFactor;
@@ -116,7 +120,7 @@ export class Ball {
         break;
       }
 
-      const travelT = Math.max(0, collision.t - 0.001);
+      const travelT = Math.max(0, collision.t - COLLISION_SAFETY_OFFSET);
       this.x = startX + (endX - startX) * travelT;
       this.y = startY + (endY - startY) * travelT;
       this._resolveCollision(collision, board, runState, eventEmitter);
@@ -308,8 +312,8 @@ export class Ball {
   }
 
   _bounceAlongNormal(nx, ny, restitution, tangentialJitter = 0) {
-    this.x += nx * 0.35;
-    this.y += ny * 0.35;
+    this.x += nx * COLLISION_SEPARATION_OFFSET;
+    this.y += ny * COLLISION_SEPARATION_OFFSET;
 
     const dot = this.vx * nx + this.vy * ny;
     if (dot < 0) {

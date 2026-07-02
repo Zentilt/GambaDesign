@@ -14,6 +14,9 @@ import {
 } from './progression.js';
 import { RARITY_WEIGHTS } from './constants.js';
 
+const LEGACY_STEP_RATE = 1 / PHYSICS_STEP;
+const GRAVITY_SHIFT_INTERVAL_TICKS = 180;
+
 export class Game {
   constructor() {
     this.canvas   = document.getElementById('game-canvas');
@@ -180,8 +183,8 @@ export class Game {
         this.balls.push(new Ball(
           activeBall.x,
           activeBall.y,
-          activeBall.vx / 60 + rand(-1.5, 1.5),
-          activeBall.vy / 60 + rand(-1, 1),
+          activeBall.vx / LEGACY_STEP_RATE + rand(-1.5, 1.5),
+          activeBall.vy / LEGACY_STEP_RATE + rand(-1, 1),
           this.runState
         ));
         this.runState.pendingBalls--;
@@ -200,7 +203,7 @@ export class Game {
     ];
 
     if (hasGravityShift) {
-      if (simulationActive && this._physicsTick > 0 && this._physicsTick % 180 === 0) {
+      if (simulationActive && this._physicsTick > 0 && this._physicsTick % GRAVITY_SHIFT_INTERVAL_TICKS === 0) {
         this._gravityShiftIndex = (this._gravityShiftIndex + 1) % gravityVectors.length;
         this._log('🌪️ Gravity shifts!', 'danger');
       }
