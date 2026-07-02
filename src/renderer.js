@@ -8,7 +8,7 @@ import {
 import { RARITY_COLORS } from './constants.js';
 
 export function drawBoard(ctx, board) {
-  const { palette, pegs, bumpers, portals, slots } = board;
+  const { palette, pegs, bumpers, portals, barriers = [], slots } = board;
 
   // Background
   ctx.fillStyle = palette.bg;
@@ -45,6 +45,21 @@ export function drawBoard(ctx, board) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(isEntry ? 'IN' : 'OUT', portal.x, portal.y);
+  }
+
+  // Boss barriers
+  for (const barrier of barriers) {
+    ctx.save();
+    ctx.strokeStyle = '#ff8a65';
+    ctx.lineWidth = barrier.thickness;
+    ctx.lineCap = 'round';
+    ctx.shadowBlur = 16;
+    ctx.shadowColor = '#ff7043';
+    ctx.beginPath();
+    ctx.moveTo(barrier.x1, barrier.y);
+    ctx.lineTo(barrier.x2, barrier.y);
+    ctx.stroke();
+    ctx.restore();
   }
 
   // Pegs

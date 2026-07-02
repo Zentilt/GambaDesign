@@ -47,6 +47,44 @@ export function dist(ax, ay, bx, by) {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
+/** First intersection t in [0, 1] for a line segment against a circle */
+export function lineCircleIntersect(ax, ay, bx, by, cx, cy, radius) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const fx = ax - cx;
+  const fy = ay - cy;
+  const a = dx * dx + dy * dy;
+  if (a === 0) return null;
+
+  const b = 2 * (fx * dx + fy * dy);
+  const c = fx * fx + fy * fy - radius * radius;
+  const disc = b * b - 4 * a * c;
+  if (disc < 0) return null;
+
+  const root = Math.sqrt(disc);
+  const t1 = (-b - root) / (2 * a);
+  const t2 = (-b + root) / (2 * a);
+
+  if (t1 >= 0 && t1 <= 1) return t1;
+  if (t2 >= 0 && t2 <= 1) return t2;
+  return null;
+}
+
+/** Closest point on a line segment */
+export function closestPointOnSegment(px, py, ax, ay, bx, by) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return { x: ax, y: ay, t: 0 };
+
+  const t = clamp(((px - ax) * dx + (py - ay) * dy) / lenSq, 0, 1);
+  return {
+    x: ax + dx * t,
+    y: ay + dy * t,
+    t,
+  };
+}
+
 /** Capitalize first letter */
 export function capitalize(str) {
   return str.charAt(0).toUpperCase() + str.slice(1);
