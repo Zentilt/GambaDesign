@@ -135,6 +135,7 @@ export class Game {
   _gameLoop(timestamp = 0) {
     this.animId = requestAnimationFrame(nextTs => this._gameLoop(nextTs));
     if (this._lastFrameTime === null) this._lastFrameTime = timestamp;
+    // Cap frame delta so backgrounded tabs or long frame stalls do not overflow the fixed-step accumulator.
     const frameDt = Math.min((timestamp - this._lastFrameTime) / 1000, 0.1);
     this._lastFrameTime = timestamp;
     this._physicsAccumulator += frameDt;

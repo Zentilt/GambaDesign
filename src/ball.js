@@ -279,7 +279,8 @@ export class Ball {
       if (t === null) continue;
       const cx = startX + (endX - startX) * t;
       const cy = startY + (endY - startY) * t;
-      const d = dist(cx, cy, pointX, barrier.y) || 1;
+      const d = dist(cx, cy, pointX, barrier.y);
+      if (d === 0) continue;
       const collision = {
         type: 'barrier',
         t,
@@ -344,9 +345,11 @@ export class Ball {
     if (runState.creatures.includes('wolf')) {
       this.speedStreak++;
       if (this.speedStreak >= 5) {
-        const mag = Math.sqrt(this.vx * this.vx + this.vy * this.vy) || 1;
-        this.vx = (this.vx / mag) * (mag * 1.4);
-        this.vy = (this.vy / mag) * (mag * 1.4);
+        const mag = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+        if (mag > 0) {
+          this.vx = (this.vx / mag) * (mag * 1.4);
+          this.vy = (this.vy / mag) * (mag * 1.4);
+        }
         this.speedStreak = 0;
         this._capSpeed();
         eventEmitter && eventEmitter('🐺 Wolf speed burst!', 'creature');
