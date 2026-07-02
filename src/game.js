@@ -16,6 +16,8 @@ import { RARITY_WEIGHTS } from './constants.js';
 
 const LEGACY_VELOCITY_SCALE = 1 / PHYSICS_STEP;
 const GRAVITY_SHIFT_INTERVAL_TICKS = 180;
+const SPLIT_VELOCITY_JITTER_X = 1.5;
+const SPLIT_VELOCITY_JITTER_Y = 1;
 
 export class Game {
   constructor() {
@@ -183,8 +185,8 @@ export class Game {
         this.balls.push(new Ball(
           activeBall.x,
           activeBall.y,
-          activeBall.vx / LEGACY_VELOCITY_SCALE + rand(-1.5, 1.5),
-          activeBall.vy / LEGACY_VELOCITY_SCALE + rand(-1, 1),
+          activeBall.vx / LEGACY_VELOCITY_SCALE + rand(-SPLIT_VELOCITY_JITTER_X, SPLIT_VELOCITY_JITTER_X),
+          activeBall.vy / LEGACY_VELOCITY_SCALE + rand(-SPLIT_VELOCITY_JITTER_Y, SPLIT_VELOCITY_JITTER_Y),
           this.runState
         ));
         this.runState.pendingBalls--;

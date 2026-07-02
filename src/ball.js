@@ -17,6 +17,7 @@ const COLLISION_EPSILON = 0.0001;
 const MAX_COLLISION_ITERATIONS = 3;
 const COLLISION_SAFETY_OFFSET = 0.001;
 const COLLISION_SEPARATION_OFFSET = 0.35;
+const PEG_TANGENTIAL_JITTER = 0.15;
 
 export class Ball {
   constructor(x, y, vx = 0, vy = 1, runState = null) {
@@ -302,7 +303,7 @@ export class Ball {
   }
 
   _resolveCollision(collision, board, runState, eventEmitter) {
-    this._bounceAlongNormal(collision.nx, collision.ny, collision.restitution, collision.type === 'peg' ? 0.15 : 0);
+    this._bounceAlongNormal(collision.nx, collision.ny, collision.restitution, collision.type === 'peg' ? PEG_TANGENTIAL_JITTER : 0);
 
     if (collision.type === 'peg') {
       this._handlePegHit(collision.obstacle, board, runState, eventEmitter);
@@ -571,10 +572,10 @@ export class Ball {
 }
 
 /** Update bumper ignite timers */
-export function updateBumpers(bumpers, stepScale = 1) {
+export function updateBumpers(bumpers, frameScale = 1) {
   for (const b of bumpers) {
     if (b.igniteTimer > 0) {
-      b.igniteTimer = Math.max(0, b.igniteTimer - stepScale);
+      b.igniteTimer = Math.max(0, b.igniteTimer - frameScale);
       if (b.igniteTimer <= 0) b.isIgnited = false;
     }
   }
