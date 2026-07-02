@@ -145,7 +145,7 @@ export class Ball {
   _updateComboAndGlow(stepScale) {
     if (this.comboWindow > 0) {
       this.comboWindow = Math.max(0, this.comboWindow - stepScale);
-      if (this.comboWindow === 0) this.combo = 0;
+      if (this.comboWindow <= 0) this.combo = 0;
     } else {
       this.combo = 0;
     }
@@ -209,6 +209,8 @@ export class Ball {
       const t = (check.plane - check.start) / check.value;
       if (t < 0 || t > 1) continue;
 
+      // Ignore cases where the segment starts beyond a wall and ends back inside bounds;
+      // those are recovery moves from prior correction, not fresh wall impacts.
       if (check.normal.x === 1 && endX >= this.radius) continue;
       if (check.normal.x === -1 && endX <= CANVAS_WIDTH - this.radius) continue;
       if (check.normal.y === 1 && endY >= this.radius) continue;
@@ -347,8 +349,8 @@ export class Ball {
       if (this.speedStreak >= 5) {
         const mag = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
         if (mag > 0) {
-          this.vx = (this.vx / mag) * (mag * 1.4);
-          this.vy = (this.vy / mag) * (mag * 1.4);
+          this.vx *= 1.4;
+          this.vy *= 1.4;
         }
         this.speedStreak = 0;
         this._capSpeed();
